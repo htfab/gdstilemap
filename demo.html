@@ -1,0 +1,25 @@
+<html>
+<head>
+    <title>GDS tilemap demo</title>
+    <style type="text/css">
+        body, html { width: 100%; height: 100%; margin: 0; }
+    </style>
+</head>
+<body>
+    <div id="osd1"></div>
+    <script src="osd/openseadragon.min.js"></script>
+    <script type="text/javascript">
+        var viewer = OpenSeadragon({
+            id: "osd1",
+            prefixUrl: "osd/images/",
+            tileSources: ["bump.dzi", "beol5.dzi", "beol4.dzi", "beol3.dzi", "beol2.dzi", "beol1.dzi", "feol2.dzi", "feol1.dzi"],
+            sequenceMode: true,
+            preserveViewport: true,
+            maxZoomPixelRatio: 2.5,
+            subPixelRoundingForTransparency: OpenSeadragon.SUBPIXEL_ROUNDING_OCCURRENCES.ALWAYS,
+            navigationControlAnchor: OpenSeadragon.ControlAnchor.TOP_LEFT,
+            sequenceControlAnchor: OpenSeadragon.ControlAnchor.TOP_LEFT
+        });
+    </script>
+</body>
+</html>
