@@ -1,19 +1,27 @@
 #!/usr/bin/env python3
 
-import os, sys, re
+import os, sys, io, re
 from klayout import db, lay
+from PIL import Image, ImageChops
 
 layer_props = 'sky130+micross.lyp'
 caravel_layout = 'caravel.oas'
 bump_bond_layout = 'caravel_bump_bond.oas'
 
-layers = ('psdm', 'nsdm', 'poly', 'licon1', 'li1', 'mcon', 'met1', 'via', 'met2', 'via2', 'met3', 'via3', 'met4', 'via4', 'met5', 'pad', 'pi1', 'rdl', 'pi2')
 datatypes = ('drawing', 'res', 'cut', 'gate', 'short', 'pin')
-slices = (('bump', 'pi2'), ('beol5', 'pad'), ('beol4', 'via4'), ('beol3', 'via3'), ('beol2', 'via2'), ('beol1', 'via'), ('feol2', 'mcon'), ('feol1', 'licon1'))
+slices = (('feol1', ('psdm', 'nsdm', 'poly', 'licon1')),
+          ('feol2', ('li1', 'mcon')),
+          ('beol1', ('met1', 'via')),
+          ('beol2', ('met2', 'via2')),
+          ('beol3', ('met3', 'via3')),
+          ('beol4', ('met4', 'via4')),
+          ('beol5', ('met5', 'pad')),
+          ('bump', ('pi1', 'rdl', 'pi2')))
 
 file_template = lambda s, z, x, y: f'{s}_files/{z}/{x}_{y}.png'
 tile_size_exp = 9
 zoom_depth = 12
+transparent = True
 
 def zoom(full_box, subdiv, x, y):
     left = full_box.right*x/subdiv + full_box.left*(1-x/subdiv)
@@ -22,13 +30,12 @@ def zoom(full_box, subdiv, x, y):
     bottom = full_box.bottom*(y+1)/subdiv + full_box.top*(1-(y+1)/subdiv)
     return db.DBox(left, bottom, right, top)
 
-def change_slice(lv, slice_layer):
+def change_slice(lv, slice_layers):
     for l in lv.each_layer():
         m = re.match(r'(.*)\.(.*) - (.*)', l.name)
         l.visible = (m is not None and
-                     m.group(1) in layers and
-                     m.group(2) in datatypes and
-                     layers.index(m.group(1)) <= layers.index(slice_layer))
+                     m.group(1) in slice_layers and
+                     m.group(2) in datatypes)
     lv.update_content()
 
 print('Initializing', file=sys.stderr, flush=True)
@@ -43,6 +50,9 @@ lv.set_config('background-color', '#ffffff')
 lv.set_config('grid-visible', 'false')
 lv.set_config('text-visible', 'false')
 full_box = lv.box()
+all_slices = tuple(s for slice_name, slice_layers in slices for s in slice_layers)
+change_slice(lv, all_slices)
+lv.get_pixels_with_options(1, 1, 0, 0, 0, full_box)  # klayout bug workaround
 
 print('Writing dzi manifests', file=sys.stderr, flush=True)
 for slice_name, slice_layer in slices:
@@ -57,13 +67,23 @@ for zoom_level in range(zoom_depth+1):
     extra_zoom = zoom_level - tile_size_exp
     subdiv = 1 << extra_zoom if extra_zoom > 0 else 1
     tile_size = 1 << tile_size_exp if extra_zoom > 0 else 1 << zoom_level
-    for slice_name, slice_layer in slices:
+    for slice_name, slice_layers in slices:
         os.makedirs(os.path.dirname(file_template(slice_name, zoom_level, 0, 0)), exist_ok=True)
-        change_slice(lv, slice_layer)
+        change_slice(lv, slice_layers)
         for y in range(subdiv):
             for x in range(subdiv):
                 file = file_template(slice_name, zoom_level, x, y)
                 box = zoom(full_box, subdiv, x, y)
                 print(f'Exporting {file}', file=sys.stderr, flush=True)
-                lv.save_image_with_options(file, tile_size, tile_size, 0, 3, 0, box)
+                if transparent:
+                    lv.set_config('background-color', '#000000')
+                    pb = lv.get_pixels_with_options(tile_size, tile_size, 0, 3, 0, box)
+                    ib = Image.open(io.BytesIO(pb.to_png_data()))
+                    lv.set_config('background-color', '#ffffff')
+                    pw = lv.get_pixels_with_options(tile_size, tile_size, 0, 3, 0, box)
+                    iw = Image.open(io.BytesIO(pw.to_png_data()))
+                    mask = ImageChops.add(ImageChops.invert(iw.convert('L')), ib.convert('L'))
+                    Image.merge("RGBa", (*ib.split(), mask)).convert("RGBA").save(file)
+                else:
+                    lv.save_image_with_options(file, tile_size, tile_size, 0, 3, 0, box)
 
